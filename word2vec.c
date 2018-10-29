@@ -71,7 +71,7 @@ void InitUnigramTable() {
 void ReadWord(char *word, FILE *fin, char *eof) {
   int a = 0, ch;
   while (1) {
-    ch = fgetc_unlocked(fin);
+    ch = getc_unlocked(fin);
     if (ch == EOF) {
       *eof = 1;
       break;
@@ -88,6 +88,7 @@ void ReadWord(char *word, FILE *fin, char *eof) {
       } else continue;
     }
     word[a] = ch;
+    printf("a = %d, word[a] = %c \n", a, word[a]);
     a++;
     if (a >= MAX_STRING - 1) a--;   // Truncate too long words
   }
@@ -347,15 +348,22 @@ void ReadVocab() {
   fclose(fin);
 }
 
+// if hs: syn1
+// if ng: syn1neg
+// must: syn0
+// 初始化网络
 void InitNet() {
   long long a, b;
   unsigned long long next_random = 1;
+  // syn0: 对应词向量, 申请空间为: 词库大小*词向量长度*float大小
   a = posix_memalign((void **)&syn0, 128, (long long)vocab_size * layer1_size * sizeof(real));
   if (syn0 == NULL) {printf("Memory allocation failed\n"); exit(1);}
   if (hs) {
+    // syn1: projection layer大小，申请空间为: 词库大小*词向量长度*float大小
     a = posix_memalign((void **)&syn1, 128, (long long)vocab_size * layer1_size * sizeof(real));
     if (syn1 == NULL) {printf("Memory allocation failed\n"); exit(1);}
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
+     // 第a个词，第b个dim
      syn1[a * layer1_size + b] = 0;
   }
   if (negative>0) {
@@ -379,6 +387,9 @@ void *TrainModelThread(void *id) {
   char eof = 0;
   real f, g;
   clock_t now;
+
+  // neu1: projection layer X(w), sum the value of sigma(theta^T*e(w))
+  // neu1e: v, sum of the gradients of each node in the path
   real *neu1 = (real *)calloc(layer1_size, sizeof(real));
   real *neu1e = (real *)calloc(layer1_size, sizeof(real));
   FILE *fi = fopen(train_file, "rb");
@@ -416,6 +427,8 @@ void *TrainModelThread(void *id) {
       }
       sentence_position = 0;
     }
+    printf("==========here 3=========\n");
+    printf("sentence length is %lld\n", sentence_length);
     if (eof || (word_count > train_words / num_threads)) {
       word_count_actual += word_count - last_word_count;
       local_iter--;
@@ -432,29 +445,41 @@ void *TrainModelThread(void *id) {
     for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
     next_random = next_random * (unsigned long long)25214903917 + 11;
     b = next_random % window;
+    printf("=======here======\n");
     if (cbow) {  //train the cbow architecture
       // in -> hidden
       cw = 0;
       for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
+        printf("a is %lld\n", a);
+        printf("b is %lld\n", b);
+        printf("window is %d\n", window);
         c = sentence_position - window + a;
+        printf("c is %lld\n", c);
+        printf("sentence_length is %lld\n", sentence_length);
         if (c < 0) continue;
         if (c >= sentence_length) continue;
         last_word = sen[c];
+        printf("=====last word is %lld\n", last_word);
         if (last_word == -1) continue;
+        printf("last_word is %lld\n", last_word);
+        // 初始化X(w)为窗口中的words的向量的和，有paper是平均
         for (c = 0; c < layer1_size; c++) neu1[c] += syn0[c + last_word * layer1_size];
         cw++;
       }
       if (cw) {
         for (c = 0; c < layer1_size; c++) neu1[c] /= cw;
+        // 如果分层softmax, theta(j: 2->l, w)作为tree的路径参数
         if (hs) for (d = 0; d < vocab[word].codelen; d++) {
           f = 0;
           l2 = vocab[word].point[d] * layer1_size;
           // Propagate hidden -> output
+          // syn1: theta = l2指向了该词的起始位置，c来计算每个dim
           for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1[c + l2];
           if (f <= -MAX_EXP) continue;
           else if (f >= MAX_EXP) continue;
           else f = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
           // 'g' is the gradient multiplied by the learning rate
+          // 梯度
           g = (1 - vocab[word].code[d] - f) * alpha;
           // Propagate errors output -> hidden
           for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1[c + l2];
