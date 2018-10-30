@@ -500,11 +500,15 @@ void *TrainModelThread(void *id) {
           }
           l2 = target * layer1_size;
           f = 0;
+          // 3.1 x(w)*theta
           for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1neg[c + l2];
           if (f > MAX_EXP) g = (label - 1) * alpha;
           else if (f < -MAX_EXP) g = (label - 0) * alpha;
+          // 3.2 g = eta * (L(u)-q)
           else g = (label - expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]) * alpha;
+          // 3.3. v = v + g * theta
           for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1neg[c + l2];
+          // 3.4 theta = theta + g * x(w)
           for (c = 0; c < layer1_size; c++) syn1neg[c + l2] += g * neu1[c];
         }
         // hidden -> in
