@@ -24,31 +24,63 @@
 #define MAX_SENTENCE_LENGTH 1000
 #define MAX_CODE_LENGTH 40
 
+// 考虑到碰撞，所以乘以0.7最多21M个词语
 const int vocab_hash_size = 30000000;  // Maximum 30 * 0.7 = 21M words in the vocabulary
 
+// real 定义为float，增加精度可以改为double
 typedef float real;                    // Precision of float numbers
 
+// cn: 出现的频次
+// point: 表中的位置。有很多表是一维度表示二维
+// word: 词
+// code: 词的huffman编码
+// codelen: huffman编码的长度
 struct vocab_word {
   long long cn;
   int *point;
   char *word, *code, codelen;
 };
 
+// train_file: 保留训练文件名称
+// output_file: 输出文件名称
 char train_file[MAX_STRING], output_file[MAX_STRING];
+
+// save_vocab_file: 保存词的频次的文件的名称
+// read_vocab_file
 char save_vocab_file[MAX_STRING], read_vocab_file[MAX_STRING];
+
 struct vocab_word *vocab;
+
+// text格式，cbow而不是skip-gram，debug模式多输出一些信息, 窗口设置为5，词频最少5，太少就过滤了，12线程跑，当hash快满的时候进行过滤，最少词频为1
 int binary = 0, cbow = 1, debug_mode = 2, window = 5, min_count = 5, num_threads = 12, min_reduce = 1;
 int *vocab_hash;
+
+// 词典最多1000个词语，其实后面会继续动态增加；词典真实大小为vocab_size；词向量dim初始值100
 long long vocab_max_size = 1000, vocab_size = 0, layer1_size = 100;
+
+// 
 long long train_words = 0, word_count_actual = 0, iter = 5, file_size = 0, classes = 0;
+
+// 学习速率alpha
 real alpha = 0.025, starting_alpha, sample = 1e-3;
+
+// syn0: e(w)
+// syn1: theta(w, j)
+// syn1neg: theta(u)
+// expTable: sigmoid function table
 real *syn0, *syn1, *syn1neg, *expTable;
+
+// 记录时间
 clock_t start;
 
+// 是否分层softmax; negtive sampling的负样本采样个数
 int hs = 0, negative = 5;
+
+// 用来negative sampling的一个表的大小
 const int table_size = 1e8;
 int *table;
 
+// 初始化negtive sampling的采样表，注意不是直接用次数，而是用pow(次数, 0.75)来做，降低一下高频词的采到的概率，保存在table表中
 void InitUnigramTable() {
   int a, i;
   double train_words_pow = 0;
@@ -68,6 +100,7 @@ void InitUnigramTable() {
 }
 
 // Reads a single word from a file, assuming space + tab + EOL to be word boundaries
+// 从fin中读词，返回给word
 void ReadWord(char *word, FILE *fin, char *eof) {
   int a = 0, ch;
   while (1) {
@@ -77,6 +110,7 @@ void ReadWord(char *word, FILE *fin, char *eof) {
       break;
     }
     if (ch == 13) continue;
+    // 三种词的分隔符
     if ((ch == ' ') || (ch == '\t') || (ch == '\n')) {
       if (a > 0) {
         if (ch == '\n') ungetc(ch, fin);
@@ -88,14 +122,16 @@ void ReadWord(char *word, FILE *fin, char *eof) {
       } else continue;
     }
     word[a] = ch;
-    printf("a = %d, word[a] = %c \n", a, word[a]);
+    // printf("a = %d, word[a] = %c \n", a, word[a]);
     a++;
+    // 词太长就截断了
     if (a >= MAX_STRING - 1) a--;   // Truncate too long words
   }
   word[a] = 0;
 }
 
 // Returns hash value of a word
+// hash函数，每个char的ascii码*质数逐步乘起来，很常见的做法
 int GetWordHash(char *word) {
   unsigned long long a, hash = 0;
   for (a = 0; a < strlen(word); a++) hash = hash * 257 + word[a];
@@ -104,6 +140,7 @@ int GetWordHash(char *word) {
 }
 
 // Returns position of a word in the vocabulary; if the word is not found, returns -1
+// 线性探测法，hash后环状线性地去找词，要么找到返回词的位置，要么找到-1
 int SearchVocab(char *word) {
   unsigned int hash = GetWordHash(word);
   while (1) {
@@ -115,6 +152,7 @@ int SearchVocab(char *word) {
 }
 
 // Reads a word and returns its index in the vocabulary
+// 读词，返回index
 int ReadWordIndex(FILE *fin, char *eof) {
   char word[MAX_STRING], eof_l = 0;
   ReadWord(word, fin, &eof_l);
@@ -126,6 +164,7 @@ int ReadWordIndex(FILE *fin, char *eof) {
 }
 
 // Adds a word to the vocabulary
+// 加词到词典, 线性环状探测找到位置
 int AddWordToVocab(char *word) {
   unsigned int hash, length = strlen(word) + 1;
   if (length > MAX_STRING) length = MAX_STRING;
@@ -134,6 +173,7 @@ int AddWordToVocab(char *word) {
   vocab[vocab_size].cn = 0;
   vocab_size++;
   // Reallocate memory if needed
+  // +2的目的是为了一定有-1的位置留给这个词
   if (vocab_size + 2 >= vocab_max_size) {
     vocab_max_size += 1000;
     vocab = (struct vocab_word *)realloc(vocab, vocab_max_size * sizeof(struct vocab_word));
@@ -145,6 +185,7 @@ int AddWordToVocab(char *word) {
 }
 
 // Used later for sorting by word counts
+// 排序函数，给快排用的
 int VocabCompare(const void *a, const void *b) {
   long long l = ((struct vocab_word *)b)->cn - ((struct vocab_word *)a)->cn;
   if (l > 0) return 1;
@@ -153,6 +194,7 @@ int VocabCompare(const void *a, const void *b) {
 }
 
 // Sorts the vocabulary by frequency using word counts
+// 词典按词频排序，为了构建huffman树做准备
 void SortVocab() {
   int a, size;
   unsigned int hash;
@@ -732,7 +774,9 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-iter", argc, argv)) > 0) iter = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-min-count", argc, argv)) > 0) min_count = atoi(argv[i + 1]);
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
+  // 申请词库空间
   vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));
+  // 
   vocab_hash = (int *)calloc(vocab_hash_size, sizeof(int));
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   for (i = 0; i < EXP_TABLE_SIZE; i++) {

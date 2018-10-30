@@ -13,4 +13,4 @@ time ./word2vec \
     -min-count 0 \
     -classes 0 \
     -cbow 1 \
-    -window 3
+    -window 3 \
