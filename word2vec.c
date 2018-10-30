@@ -359,7 +359,7 @@ void InitNet() {
   a = posix_memalign((void **)&syn0, 128, (long long)vocab_size * layer1_size * sizeof(real));
   if (syn0 == NULL) {printf("Memory allocation failed\n"); exit(1);}
   if (hs) {
-    // syn1: projection layer大小，申请空间为: 词库大小*词向量长度*float大小
+    // syn1: theta参数的大小，申请空间为: 词库大小*词向量长度*float大小
     a = posix_memalign((void **)&syn1, 128, (long long)vocab_size * layer1_size * sizeof(real));
     if (syn1 == NULL) {printf("Memory allocation failed\n"); exit(1);}
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
@@ -372,6 +372,7 @@ void InitNet() {
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
      syn1neg[a * layer1_size + b] = 0;
   }
+  // 随机初始化w2v的向量
   for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++) {
     next_random = next_random * (unsigned long long)25214903917 + 11;
     syn0[a * layer1_size + b] = (((next_random & 0xFFFF) / (real)65536) - 0.5) / layer1_size;
@@ -473,17 +474,16 @@ void *TrainModelThread(void *id) {
           f = 0;
           l2 = vocab[word].point[d] * layer1_size;
           // Propagate hidden -> output
-          // syn1: theta = l2指向了该词的起始位置，c来计算每个dim
+          // 3.1 查表计算sigma(x*theta)
           for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1[c + l2];
           if (f <= -MAX_EXP) continue;
           else if (f >= MAX_EXP) continue;
           else f = expTable[(int)((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))];
-          // 'g' is the gradient multiplied by the learning rate
-          // 梯度
+          // 'g' is the gradient multiplied by the learning rate: 3.2 g = (1-dj-q) * eta
           g = (1 - vocab[word].code[d] - f) * alpha;
-          // Propagate errors output -> hidden
+          // Propagate errors output -> hidden : 3.3 v = v + g*theta
           for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1[c + l2];
-          // Learn weights hidden -> output
+          // Learn weights hidden -> output: 3.4 theta = theta + g*w
           for (c = 0; c < layer1_size; c++) syn1[c + l2] += g * neu1[c];
         }
         // NEGATIVE SAMPLING
