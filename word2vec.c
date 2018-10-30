@@ -19,9 +19,17 @@
 #include <pthread.h>
 
 #define MAX_STRING 100
+
+// sigmoid function table 粒度
 #define EXP_TABLE_SIZE 1000
+
+// sigma(MAX_EXP) 作为边界
 #define MAX_EXP 6
+
+// 最长词长度
 #define MAX_SENTENCE_LENGTH 1000
+
+// Huffman编码最大长度
 #define MAX_CODE_LENGTH 40
 
 // 考虑到碰撞，所以乘以0.7最多21M个词语
@@ -205,11 +213,13 @@ void SortVocab() {
   train_words = 0;
   for (a = 0; a < size; a++) {
     // Words occuring less than min_count times will be discarded from the vocab
+    // 过滤低频词
     if ((vocab[a].cn < min_count) && (a != 0)) {
       vocab_size--;
       free(vocab[a].word);
     } else {
       // Hash will be re-computed, as after the sorting it is not actual
+      // 重新计算Hash
       hash=GetWordHash(vocab[a].word);
       while (vocab_hash[hash] != -1) hash = (hash + 1) % vocab_hash_size;
       vocab_hash[hash] = a;
@@ -218,6 +228,7 @@ void SortVocab() {
   }
   vocab = (struct vocab_word *)realloc(vocab, (vocab_size + 1) * sizeof(struct vocab_word));
   // Allocate memory for the binary tree construction
+  // 申请huffman树的空间
   for (a = 0; a < vocab_size; a++) {
     vocab[a].code = (char *)calloc(MAX_CODE_LENGTH, sizeof(char));
     vocab[a].point = (int *)calloc(MAX_CODE_LENGTH, sizeof(int));
@@ -225,6 +236,7 @@ void SortVocab() {
 }
 
 // Reduces the vocabulary by removing infrequent tokens
+// 在hash空间不够的情况下，低于min_reduce的词会被过滤掉, min_reduce一直在增加，一直增加到满足hash填充率低于0.7为止
 void ReduceVocab() {
   int a, b = 0;
   unsigned int hash;
@@ -247,12 +259,17 @@ void ReduceVocab() {
 
 // Create binary Huffman tree using the word counts
 // Frequent words will have short uniqe binary codes
+// 建huffman树
 void CreateBinaryTree() {
   long long a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];
   char code[MAX_CODE_LENGTH];
+
+  // 申请词典大小的2倍空间
   long long *count = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
   long long *binary = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
   long long *parent_node = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
+
+  // 
   for (a = 0; a < vocab_size; a++) count[a] = vocab[a].cn;
   for (a = vocab_size; a < vocab_size * 2; a++) count[a] = 1e15;
   pos1 = vocab_size - 1;
