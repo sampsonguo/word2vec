@@ -474,7 +474,7 @@ void *TrainModelThread(void *id) {
           f = 0;
           l2 = vocab[word].point[d] * layer1_size;
           // Propagate hidden -> output
-          // 3.1 查表计算sigma(x*theta)
+          // 3.1 查表计算sigma(x(w)*theta)
           for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1[c + l2];
           if (f <= -MAX_EXP) continue;
           else if (f >= MAX_EXP) continue;
@@ -483,7 +483,7 @@ void *TrainModelThread(void *id) {
           g = (1 - vocab[word].code[d] - f) * alpha;
           // Propagate errors output -> hidden : 3.3 v = v + g*theta
           for (c = 0; c < layer1_size; c++) neu1e[c] += g * syn1[c + l2];
-          // Learn weights hidden -> output: 3.4 theta = theta + g*w
+          // Learn weights hidden -> output: 3.4 theta = theta + g*x(w)
           for (c = 0; c < layer1_size; c++) syn1[c + l2] += g * neu1[c];
         }
         // NEGATIVE SAMPLING
