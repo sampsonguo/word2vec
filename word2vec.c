@@ -428,7 +428,7 @@ void InitNet() {
   a = posix_memalign((void **)&syn0, 128, (long long)vocab_size * layer1_size * sizeof(real));
   if (syn0 == NULL) {printf("Memory allocation failed\n"); exit(1);}
   if (hs) {
-    // syn1: theta参数的大小，申请空间为: 词库大小*词向量长度*float大小
+    // syn1: theta参数的大小，申请空间为: 词库大小(分支节点)*词向量长度*float大小
     a = posix_memalign((void **)&syn1, 128, (long long)vocab_size * layer1_size * sizeof(real));
     if (syn1 == NULL) {printf("Memory allocation failed\n"); exit(1);}
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
@@ -551,7 +551,7 @@ void *TrainModelThread(void *id) {
         // 如果分层softmax, theta(j: 2->l, w)作为tree的路径参数
         if (hs) for (d = 0; d < vocab[word].codelen; d++) {
           f = 0;
-          // l2用来找到theta在tree中的位置
+          // l2用来找到theta在tree中的位置, 主要是分支节点，不包含叶子节点
           l2 = vocab[word].point[d] * layer1_size;
           // Propagate hidden -> output
           // 3.1 查表计算sigma(x(w)*theta)
