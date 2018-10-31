@@ -26,7 +26,7 @@
 // sigma(MAX_EXP) 作为边界
 #define MAX_EXP 6
 
-// 最长词长度
+// 句子中最多的词个数
 #define MAX_SENTENCE_LENGTH 1000
 
 // Huffman编码最大长度
@@ -264,19 +264,24 @@ void CreateBinaryTree() {
   long long a, b, i, min1i, min2i, pos1, pos2, point[MAX_CODE_LENGTH];
   char code[MAX_CODE_LENGTH];
 
-  // 申请词典大小的2倍空间
+  // 申请词典大小的2倍空间，总节点个数等于叶子节点个数的2倍-1
   long long *count = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
   long long *binary = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
   long long *parent_node = (long long *)calloc(vocab_size * 2 + 1, sizeof(long long));
 
-  // 
+  // 叶子节点
   for (a = 0; a < vocab_size; a++) count[a] = vocab[a].cn;
+  // 分支节点
   for (a = vocab_size; a < vocab_size * 2; a++) count[a] = 1e15;
   pos1 = vocab_size - 1;
   pos2 = vocab_size;
   // Following algorithm constructs the Huffman tree by adding one node at a time
   for (a = 0; a < vocab_size - 1; a++) {
     // First, find two smallest nodes 'min1, min2'
+    // min1：最小的叶子节点
+    // min2：次小的叶子节点
+    // pos1: 从叶子节点去找最小
+    // pos2：从分支节点去找最小
     if (pos1 >= 0) {
       if (count[pos1] < count[pos2]) {
         min1i = pos1;
@@ -301,9 +306,12 @@ void CreateBinaryTree() {
       min2i = pos2;
       pos2++;
     }
+    // 父节点计数
     count[vocab_size + a] = count[min1i] + count[min2i];
+    // 孩子节点指向父节点
     parent_node[min1i] = vocab_size + a;
     parent_node[min2i] = vocab_size + a;
+    // 较大的分支定义为1，较小的分支定义为0
     binary[min2i] = 1;
   }
   // Now assign binary code to each vocabulary word
@@ -317,9 +325,11 @@ void CreateBinaryTree() {
       b = parent_node[b];
       if (b == vocab_size * 2 - 2) break;
     }
+    // huffman编码长度
     vocab[a].codelen = i;
     vocab[a].point[0] = vocab_size - 2;
     for (b = 0; b < i; b++) {
+      // 每个位置的二进制编码
       vocab[a].code[i - b - 1] = code[b];
       vocab[a].point[i - b] = point[b] - vocab_size;
     }
@@ -329,6 +339,7 @@ void CreateBinaryTree() {
   free(parent_node);
 }
 
+// 从语料中得到词库
 void LearnVocabFromTrainFile() {
   char word[MAX_STRING], eof = 0;
   FILE *fin;
@@ -367,6 +378,7 @@ void LearnVocabFromTrainFile() {
   fclose(fin);
 }
 
+// 保存词库，格式：词，词频
 void SaveVocab() {
   long long i;
   FILE *fo = fopen(save_vocab_file, "wb");
@@ -374,6 +386,7 @@ void SaveVocab() {
   fclose(fo);
 }
 
+// 从词库文件中读取词库
 void ReadVocab() {
   long long a, i = 0;
   char c, eof = 0;
@@ -407,14 +420,11 @@ void ReadVocab() {
   fclose(fin);
 }
 
-// if hs: syn1
-// if ng: syn1neg
-// must: syn0
 // 初始化网络
 void InitNet() {
   long long a, b;
   unsigned long long next_random = 1;
-  // syn0: 对应词向量, 申请空间为: 词库大小*词向量长度*float大小
+  // syn0: 对应词向量, e(w), 申请空间为: 词库大小*词向量长度*float大小
   a = posix_memalign((void **)&syn0, 128, (long long)vocab_size * layer1_size * sizeof(real));
   if (syn0 == NULL) {printf("Memory allocation failed\n"); exit(1);}
   if (hs) {
@@ -426,6 +436,7 @@ void InitNet() {
      syn1[a * layer1_size + b] = 0;
   }
   if (negative>0) {
+    // 申请负样本采样的用来做softmax的参数
     a = posix_memalign((void **)&syn1neg, 128, (long long)vocab_size * layer1_size * sizeof(real));
     if (syn1neg == NULL) {printf("Memory allocation failed\n"); exit(1);}
     for (a = 0; a < vocab_size; a++) for (b = 0; b < layer1_size; b++)
@@ -439,7 +450,10 @@ void InitNet() {
   CreateBinaryTree();
 }
 
+// 模型训练，w2v的核心
 void *TrainModelThread(void *id) {
+  // sentence_length:
+  // sentence_position:
   long long a, b, d, cw, word, last_word, sentence_length = 0, sentence_position = 0;
   long long word_count = 0, last_word_count = 0, sen[MAX_SENTENCE_LENGTH + 1];
   long long l1, l2, c, target, label, local_iter = iter;
@@ -476,6 +490,7 @@ void *TrainModelThread(void *id) {
         word_count++;
         if (word == 0) break;
         // The subsampling randomly discards frequent words while keeping the ranking same
+        // 有的词语会被采到句子里，有的不会
         if (sample > 0) {
           real ran = (sqrt(vocab[word].cn / (sample * train_words)) + 1) * (sample * train_words) / vocab[word].cn;
           next_random = next_random * (unsigned long long)25214903917 + 11;
@@ -487,8 +502,8 @@ void *TrainModelThread(void *id) {
       }
       sentence_position = 0;
     }
-    printf("==========here 3=========\n");
-    printf("sentence length is %lld\n", sentence_length);
+    // printf("==========here 3=========\n");
+    // printf("sentence length is %lld\n", sentence_length);
     if (eof || (word_count > train_words / num_threads)) {
       word_count_actual += word_count - last_word_count;
       local_iter--;
@@ -505,32 +520,38 @@ void *TrainModelThread(void *id) {
     for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
     next_random = next_random * (unsigned long long)25214903917 + 11;
     b = next_random % window;
-    printf("=======here======\n");
+    // printf("=======here======\n");
     if (cbow) {  //train the cbow architecture
       // in -> hidden
       cw = 0;
+      // 从b位置到窗口末尾, 如果不是需要预测的词
       for (a = b; a < window * 2 + 1 - b; a++) if (a != window) {
-        printf("a is %lld\n", a);
-        printf("b is %lld\n", b);
-        printf("window is %d\n", window);
+        // printf("a is %lld\n", a);
+        // printf("b is %lld\n", b);
+        // printf("window is %d\n", window);
+        // c表示在该词在句子中的位置
         c = sentence_position - window + a;
-        printf("c is %lld\n", c);
-        printf("sentence_length is %lld\n", sentence_length);
+        // printf("c is %lld\n", c);
+        // printf("sentence_length is %lld\n", sentence_length);
         if (c < 0) continue;
         if (c >= sentence_length) continue;
+        // last word是滑动窗口要预估的最后一个词
         last_word = sen[c];
-        printf("=====last word is %lld\n", last_word);
+        // printf("=====last word is %lld\n", last_word);
         if (last_word == -1) continue;
-        printf("last_word is %lld\n", last_word);
+        // printf("last_word is %lld\n", last_word);
         // 初始化X(w)为窗口中的words的向量的和，有paper是平均
         for (c = 0; c < layer1_size; c++) neu1[c] += syn0[c + last_word * layer1_size];
+        // cw是e(w)的词的个数
         cw++;
       }
       if (cw) {
+        // X(w)改为平均
         for (c = 0; c < layer1_size; c++) neu1[c] /= cw;
         // 如果分层softmax, theta(j: 2->l, w)作为tree的路径参数
         if (hs) for (d = 0; d < vocab[word].codelen; d++) {
           f = 0;
+          // l2用来找到theta在tree中的位置
           l2 = vocab[word].point[d] * layer1_size;
           // Propagate hidden -> output
           // 3.1 查表计算sigma(x(w)*theta)
@@ -547,10 +568,12 @@ void *TrainModelThread(void *id) {
         }
         // NEGATIVE SAMPLING
         if (negative > 0) for (d = 0; d < negative + 1; d++) {
+          // 1个正样本, negative-1个负样本
           if (d == 0) {
             target = word;
             label = 1;
           } else {
+            // 采一个负样本，位置在target
             next_random = next_random * (unsigned long long)25214903917 + 11;
             target = table[(next_random >> 16) % table_size];
             if (target == 0) target = next_random % (vocab_size - 1) + 1;
@@ -559,7 +582,7 @@ void *TrainModelThread(void *id) {
           }
           l2 = target * layer1_size;
           f = 0;
-          // 3.1 x(w)*theta
+          // 3.1 x(w)*neg_theta
           for (c = 0; c < layer1_size; c++) f += neu1[c] * syn1neg[c + l2];
           if (f > MAX_EXP) g = (label - 1) * alpha;
           else if (f < -MAX_EXP) g = (label - 0) * alpha;
@@ -577,6 +600,7 @@ void *TrainModelThread(void *id) {
           if (c >= sentence_length) continue;
           last_word = sen[c];
           if (last_word == -1) continue;
+          // 更新词向量
           for (c = 0; c < layer1_size; c++) syn0[c + last_word * layer1_size] += neu1e[c];
         }
       }
@@ -588,6 +612,7 @@ void *TrainModelThread(void *id) {
         last_word = sen[c];
         if (last_word == -1) continue;
         l1 = last_word * layer1_size;
+        //初始化v的值
         for (c = 0; c < layer1_size; c++) neu1e[c] = 0;
         // HIERARCHICAL SOFTMAX
         if (hs) for (d = 0; d < vocab[word].codelen; d++) {
@@ -667,13 +692,16 @@ void TrainModel() {
       fprintf(fo, "\n");
     }
   } else {
+    // 结果要不要聚类
     // Run K-means on the word vectors
     int clcn = classes, iter = 10, closeid;
     int *centcn = (int *)malloc(classes * sizeof(int));
     int *cl = (int *)calloc(vocab_size, sizeof(int));
     real closev, x;
     real *cent = (real *)calloc(classes * layer1_size, sizeof(real));
+    // 初始化中心
     for (a = 0; a < vocab_size; a++) cl[a] = a % clcn;
+    // 开始EM
     for (a = 0; a < iter; a++) {
       for (b = 0; b < clcn * layer1_size; b++) cent[b] = 0;
       for (b = 0; b < clcn; b++) centcn[b] = 1;
@@ -681,6 +709,7 @@ void TrainModel() {
         for (d = 0; d < layer1_size; d++) cent[layer1_size * cl[c] + d] += syn0[c * layer1_size + d];
         centcn[cl[c]]++;
       }
+      // E-Step: 更新中心
       for (b = 0; b < clcn; b++) {
         closev = 0;
         for (c = 0; c < layer1_size; c++) {
@@ -690,6 +719,7 @@ void TrainModel() {
         closev = sqrt(closev);
         for (c = 0; c < layer1_size; c++) cent[layer1_size * b + c] /= closev;
       }
+      // M-Step: 更新点到中心的距离, 把点附给对应的中心
       for (c = 0; c < vocab_size; c++) {
         closev = -10;
         closeid = 0;
@@ -713,6 +743,7 @@ void TrainModel() {
   fclose(fo);
 }
 
+// 解析参数
 int ArgPos(char *str, int argc, char **argv) {
   int a;
   for (a = 1; a < argc; a++) if (!strcmp(str, argv[a])) {
@@ -793,7 +824,7 @@ int main(int argc, char **argv) {
   if ((i = ArgPos((char *)"-classes", argc, argv)) > 0) classes = atoi(argv[i + 1]);
   // 申请词库空间
   vocab = (struct vocab_word *)calloc(vocab_max_size, sizeof(struct vocab_word));
-  // 
+  // 创建sigmoid 函数查询表
   vocab_hash = (int *)calloc(vocab_hash_size, sizeof(int));
   expTable = (real *)malloc((EXP_TABLE_SIZE + 1) * sizeof(real));
   for (i = 0; i < EXP_TABLE_SIZE; i++) {
