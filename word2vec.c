@@ -479,6 +479,7 @@ void *TrainModelThread(void *id) {
          word_count_actual / ((real)(now - start + 1) / (real)CLOCKS_PER_SEC * 1000));
         fflush(stdout);
       }
+      // 自适应学习速率, 慢慢变小
       alpha = starting_alpha * (1 - word_count_actual / (real)(iter * train_words + 1));
       if (alpha < starting_alpha * 0.0001) alpha = starting_alpha * 0.0001;
     }
@@ -762,39 +763,56 @@ int main(int argc, char **argv) {
     printf("WORD VECTOR estimation toolkit v 0.1c\n\n");
     printf("Options:\n");
     printf("Parameters for training:\n");
+    // 训练文件
     printf("\t-train <file>\n");
     printf("\t\tUse text data from <file> to train the model\n");
+    // 输出文件，词的向量化表示
     printf("\t-output <file>\n");
     printf("\t\tUse <file> to save the resulting word vectors / word clusters\n");
+    // 向量化的dim
     printf("\t-size <int>\n");
     printf("\t\tSet size of word vectors; default is 100\n");
+    // 窗口大小
     printf("\t-window <int>\n");
     printf("\t\tSet max skip length between words; default is 5\n");
+    // 高频词下采样阈值设置
     printf("\t-sample <float>\n");
     printf("\t\tSet threshold for occurrence of words. Those that appear with higher frequency in the training data\n");
     printf("\t\twill be randomly down-sampled; default is 1e-3, useful range is (0, 1e-5)\n");
+    // 是否用hierarchical softmax
     printf("\t-hs <int>\n");
     printf("\t\tUse Hierarchical Softmax; default is 0 (not used)\n");
+    // 是否用negative sampling, 可以和hierarachical softmax一起用
     printf("\t-negative <int>\n");
     printf("\t\tNumber of negative examples; default is 5, common values are 3 - 10 (0 = not used)\n");
+    // 线程个数
     printf("\t-threads <int>\n");
     printf("\t\tUse <int> threads (default 12)\n");
+    // 迭代次数
     printf("\t-iter <int>\n");
     printf("\t\tRun more training iterations (default 5)\n");
+    // 低频次过滤阈值
     printf("\t-min-count <int>\n");
     printf("\t\tThis will discard words that appear less than <int> times; default is 5\n");
+    // 学习速率
     printf("\t-alpha <float>\n");
     printf("\t\tSet the starting learning rate; default is 0.025 for skip-gram and 0.05 for CBOW\n");
+    // 要不要聚类
     printf("\t-classes <int>\n");
     printf("\t\tOutput word classes rather than word vectors; default number of classes is 0 (vectors are written)\n");
+    // 输出点儿额外信息
     printf("\t-debug <int>\n");
     printf("\t\tSet the debug mode (default = 2 = more info during training)\n");
+    // 向量用二进制还是文本形式
     printf("\t-binary <int>\n");
     printf("\t\tSave the resulting vectors in binary moded; default is 0 (off)\n");
+    // 保存向量的文件
     printf("\t-save-vocab <file>\n");
     printf("\t\tThe vocabulary will be saved to <file>\n");
+    // 词库从文件中读
     printf("\t-read-vocab <file>\n");
     printf("\t\tThe vocabulary will be read from <file>, not constructed from the training data\n");
+    // cbow or skip-gram
     printf("\t-cbow <int>\n");
     printf("\t\tUse the continuous bag of words model; default is 1 (use 0 for skip-gram model)\n");
     printf("\nExamples:\n");
